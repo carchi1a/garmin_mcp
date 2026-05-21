@@ -5,6 +5,10 @@ from garmin_mcp.workout_builders import (
     build_walk_run_json,
     build_z2_walk_json,
     build_strength_json,
+    build_swim_workout_json,
+    _pace_to_mps,
+    SWIM_STROKE_TYPES,
+    SWIM_DRILL_TYPES,
 )
 
 SNAPSHOT_DIR = os.path.join(os.path.dirname(__file__), "..", "fixtures", "captured")
@@ -62,3 +66,145 @@ def test_build_strength_json_structure():
     assert len(steps) == 3
     assert steps[0]["exerciseName"] == "Sentadillas"
     assert steps[2]["exerciseName"] == "Flexiones"
+
+
+# =============================================================================
+# Swim workout builder tests
+# =============================================================================
+
+def test_build_swim_workout_json_basic_structure():
+    result = build_swim_workout_json(
+        name="Friday Swim",
+        warmup_meters=200,
+        main_set=[{"distance_meters": 100, "repeats": 4, "rest_seconds": 30}],
+        cooldown_meters=100,
+    )
+    assert result["workoutName"] == "Friday Swim"
+    assert result["sportType"]["sportTypeKey"] == "swimming"
+    assert result["sportType"]["sportTypeId"] == 4
+
+    steps = result["workoutSegments"][0]["workoutSteps"]
+    # warmup + RepeatGroupDTO + cooldown = 3 top-level steps
+    assert len(steps) == 3
+    assert steps[0]["stepType"]["stepTypeKey"] == "warmup"
+    assert steps[0]["endConditionValue"] == 200.0
+    assert steps[1]["type"] == "RepeatGroupDTO"
+    assert steps[1]["numberOfIterations"] == 4
+    assert steps[2]["stepType"]["stepTypeKey"] == "cooldown"
+    assert steps[2]["endConditionValue"] == 100.0
+
+    nested = steps[1]["workoutSteps"]
+    assert nested[0]["stepType"]["stepTypeKey"] == "interval"
+    assert nested[0]["endConditionValue"] == 100.0
+    assert nested[1]["endCondition"]["conditionTypeKey"] == "fixed.rest"
+    assert nested[1]["endConditionValue"] == 30.0
+
+
+def test_build_swim_workout_json_pace_conversion():
+    result = build_swim_workout_json(
+        name="Pace Test",
+        warmup_meters=100,
+        main_set=[{
+            "distance_meters": 100,
+            "repeats": 3,
+            "rest_seconds": 20,
+            "pace_slow": "2:30",
+            "pace_fast": "2:00",
+        }],
+        cooldown_meters=100,
+    )
+    interval = result["workoutSegments"][0]["workoutSteps"][1]["workoutSteps"][0]
+    assert interval["targetType"] is None
+    assert interval["secondaryTargetType"]["workoutTargetTypeKey"] == "pace.zone"
+    # 2:30/100m → 100/150 ≈ 0.6666667 m/s
+    assert abs(interval["secondaryTargetValueOne"] - _pace_to_mps("2:30")) < 1e-6
+    # 2:00/100m → 100/120 ≈ 0.8333333 m/s
+    assert abs(interval["secondaryTargetValueTwo"] - _pace_to_mps("2:00")) < 1e-6
+
+
+def test_build_swim_workout_json_single_repeat():
+    result = build_swim_workout_json(
+        name="Single Effort",
+        warmup_meters=100,
+        main_set=[{"distance_meters": 400, "repeats": 1, "rest_seconds": 60}],
+        cooldown_meters=100,
+    )
+    steps = result["workoutSegments"][0]["workoutSteps"]
+    # warmup + single interval step (no RepeatGroupDTO) + cooldown = 3 steps
+    assert len(steps) == 3
+    assert steps[1]["type"] == "ExecutableStepDTO"
+    assert steps[1]["stepType"]["stepTypeKey"] == "interval"
+    assert steps[1]["endConditionValue"] == 400.0
+
+
+def test_build_swim_workout_json_no_pace():
+    result = build_swim_workout_json(
+        name="Easy Swim",
+        warmup_meters=200,
+        main_set=[{"distance_meters": 200, "repeats": 2, "rest_seconds": 45}],
+        cooldown_meters=100,
+    )
+    interval = result["workoutSegments"][0]["workoutSteps"][1]["workoutSteps"][0]
+    assert interval["targetType"] is None
+    assert "secondaryTargetType" not in interval
+    assert "secondaryTargetValueOne" not in interval
+    assert "secondaryTargetValueTwo" not in interval
+
+
+def test_build_swim_workout_json_stroke_type():
+    result = build_swim_workout_json(
+        name="Backstroke Set",
+        warmup_meters=100,
+        main_set=[{"distance_meters": 100, "repeats": 4, "rest_seconds": 20, "stroke_type": "backstroke"}],
+        cooldown_meters=100,
+    )
+    interval = result["workoutSegments"][0]["workoutSteps"][1]["workoutSteps"][0]
+    assert "strokeType" in interval
+    assert interval["strokeType"]["strokeTypeKey"] == "backstroke"
+    assert interval["strokeType"]["strokeTypeId"] == SWIM_STROKE_TYPES["backstroke"]["strokeTypeId"]
+    assert "drillType" not in interval
+
+
+def test_build_swim_workout_json_drill_type():
+    result = build_swim_workout_json(
+        name="Kick Drill Set",
+        warmup_meters=100,
+        main_set=[{"distance_meters": 50, "repeats": 4, "rest_seconds": 15, "drill_type": "kick"}],
+        cooldown_meters=100,
+    )
+    interval = result["workoutSegments"][0]["workoutSteps"][1]["workoutSteps"][0]
+    assert "drillType" in interval
+    assert interval["drillType"]["drillTypeKey"] == "kick"
+    assert interval["drillType"]["drillTypeId"] == SWIM_DRILL_TYPES["kick"]["drillTypeId"]
+    assert "strokeType" not in interval
+
+
+def test_build_swim_workout_json_stroke_and_drill_combined():
+    result = build_swim_workout_json(
+        name="Pull Drill",
+        warmup_meters=100,
+        main_set=[{
+            "distance_meters": 100,
+            "repeats": 3,
+            "rest_seconds": 20,
+            "stroke_type": "freestyle",
+            "drill_type": "pull",
+        }],
+        cooldown_meters=100,
+    )
+    interval = result["workoutSegments"][0]["workoutSteps"][1]["workoutSteps"][0]
+    assert interval["strokeType"]["strokeTypeKey"] == "freestyle"
+    assert interval["strokeType"]["strokeTypeId"] == SWIM_STROKE_TYPES["freestyle"]["strokeTypeId"]
+    assert interval["drillType"]["drillTypeKey"] == "pull"
+    assert interval["drillType"]["drillTypeId"] == SWIM_DRILL_TYPES["pull"]["drillTypeId"]
+
+
+def test_build_swim_workout_json_invalid_stroke_type_ignored():
+    result = build_swim_workout_json(
+        name="Easy Swim",
+        warmup_meters=100,
+        main_set=[{"distance_meters": 100, "repeats": 2, "rest_seconds": 30, "stroke_type": "not_a_real_stroke"}],
+        cooldown_meters=100,
+    )
+    interval = result["workoutSegments"][0]["workoutSteps"][1]["workoutSteps"][0]
+    assert "strokeType" not in interval

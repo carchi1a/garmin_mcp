@@ -29,6 +29,28 @@ HR_ZONE_MAP = {
     "Z5": 5,
 }
 
+# strokeTypeId values are inferred from the Garmin FIT SDK and UI observation.
+# ⚠️ Validate against a live API response — workout builder IDs may differ from FIT SDK.
+SWIM_STROKE_TYPES = {
+    "freestyle":    {"strokeTypeId": 0, "strokeTypeKey": "freestyle",    "displayOrder": 1},
+    "backstroke":   {"strokeTypeId": 1, "strokeTypeKey": "backstroke",   "displayOrder": 2},
+    "breaststroke": {"strokeTypeId": 2, "strokeTypeKey": "breaststroke", "displayOrder": 3},
+    "butterfly":    {"strokeTypeId": 3, "strokeTypeKey": "butterfly",    "displayOrder": 4},
+    "choice":       {"strokeTypeId": 4, "strokeTypeKey": "choice",       "displayOrder": 5},
+    "im":           {"strokeTypeId": 5, "strokeTypeKey": "im",           "displayOrder": 6},
+    "im_by_round":  {"strokeTypeId": 6, "strokeTypeKey": "im_by_round",  "displayOrder": 7},
+    "rimo":         {"strokeTypeId": 7, "strokeTypeKey": "rimo",         "displayOrder": 8},
+    "mixed":        {"strokeTypeId": 8, "strokeTypeKey": "mixed",        "displayOrder": 9},
+}
+
+# drillTypeId values are not documented in any public source.
+# ⚠️ Validate against a live API response before relying on these IDs.
+SWIM_DRILL_TYPES = {
+    "kick":  {"drillTypeId": 1, "drillTypeKey": "kick",  "displayOrder": 1},
+    "pull":  {"drillTypeId": 2, "drillTypeKey": "pull",  "displayOrder": 2},
+    "drill": {"drillTypeId": 3, "drillTypeKey": "drill", "displayOrder": 3},
+}
+
 
 def _zone_number(zone: str) -> int:
     """Resolve a human-friendly zone string like 'Z3' to Garmin's zoneNumber."""
@@ -43,6 +65,13 @@ def _zone_number(zone: str) -> int:
     except ValueError:
         pass
     raise ValueError(f"Invalid hr_zone '{zone}'. Use Z1-Z5 or 1-5.")
+
+
+def _pace_to_mps(pace_str: str) -> float:
+    """Convert 'M:SS' per 100m string to m/s (e.g. '2:30' → 0.6666667)."""
+    parts = pace_str.strip().split(":")
+    total_seconds = int(parts[0]) * 60 + int(parts[1])
+    return round(100.0 / total_seconds, 7)
 
 
 def build_walk_run_json(
@@ -229,6 +258,123 @@ def build_strength_json(
     }
 
 
+def build_swim_workout_json(
+    name: str,
+    warmup_meters: int,
+    main_set: List[Dict[str, Any]],
+    cooldown_meters: int,
+    description: str = "",
+) -> dict:
+    """Build the Garmin Connect JSON for a swim (lap swimming) workout.
+
+    Each entry in main_set may have:
+        distance_meters (int): distance per interval
+        repeats (int): number of repetitions (>1 wraps in RepeatGroupDTO)
+        rest_seconds (int): rest between reps using fixed.rest (0 = no rest step)
+        pace_slow (str, optional): slowest target pace as 'M:SS' per 100m
+        pace_fast (str, optional): fastest target pace as 'M:SS' per 100m
+        stroke_type (str, optional): one of freestyle|backstroke|breaststroke|butterfly|
+            choice|im|im_by_round|rimo|mixed
+        drill_type (str, optional): one of kick|pull|drill (independent of stroke_type)
+    """
+    swim_sport = {"sportTypeId": 4, "sportTypeKey": "swimming"}
+    steps: List[dict] = []
+    step_order = 1
+
+    steps.append({
+        "type": "ExecutableStepDTO",
+        "stepOrder": step_order,
+        "stepType": {"stepTypeId": 1, "stepTypeKey": "warmup"},
+        "description": f"Warmup {warmup_meters}m",
+        "endCondition": {"conditionTypeId": 3, "conditionTypeKey": "distance"},
+        "endConditionValue": float(warmup_meters),
+        "targetType": None,
+    })
+    step_order += 1
+
+    for entry in main_set:
+        dist = int(entry["distance_meters"])
+        repeats = int(entry.get("repeats", 1))
+        rest_secs = int(entry.get("rest_seconds", 0))
+        pace_slow = entry.get("pace_slow")
+        pace_fast = entry.get("pace_fast")
+
+        interval_step: dict = {
+            "type": "ExecutableStepDTO",
+            "stepOrder": 1 if repeats > 1 else step_order,
+            "stepType": {"stepTypeId": 3, "stepTypeKey": "interval"},
+            "description": f"{dist}m",
+            "endCondition": {"conditionTypeId": 3, "conditionTypeKey": "distance"},
+            "endConditionValue": float(dist),
+            "targetType": None,
+        }
+        if pace_slow and pace_fast:
+            interval_step["secondaryTargetType"] = {
+                "workoutTargetTypeId": 6,
+                "workoutTargetTypeKey": "pace.zone",
+            }
+            interval_step["secondaryTargetValueOne"] = _pace_to_mps(pace_slow)
+            interval_step["secondaryTargetValueTwo"] = _pace_to_mps(pace_fast)
+
+        stroke_key = entry.get("stroke_type", "").lower()
+        drill_key = entry.get("drill_type", "").lower()
+        if stroke_key in SWIM_STROKE_TYPES:
+            interval_step["strokeType"] = SWIM_STROKE_TYPES[stroke_key]
+        if drill_key in SWIM_DRILL_TYPES:
+            interval_step["drillType"] = SWIM_DRILL_TYPES[drill_key]
+
+        if repeats > 1:
+            nested: List[dict] = [interval_step]
+            if rest_secs > 0:
+                nested.append({
+                    "type": "ExecutableStepDTO",
+                    "stepOrder": 2,
+                    "stepType": {"stepTypeId": 5, "stepTypeKey": "rest"},
+                    "description": f"Rest {rest_secs}s",
+                    "endCondition": {"conditionTypeId": 8, "conditionTypeKey": "fixed.rest"},
+                    "endConditionValue": float(rest_secs),
+                    "targetType": None,
+                })
+            steps.append({
+                "type": "RepeatGroupDTO",
+                "stepOrder": step_order,
+                "numberOfIterations": repeats,
+                "workoutSteps": nested,
+            })
+        else:
+            steps.append(interval_step)
+
+        step_order += 1
+
+    steps.append({
+        "type": "ExecutableStepDTO",
+        "stepOrder": step_order,
+        "stepType": {"stepTypeId": 2, "stepTypeKey": "cooldown"},
+        "description": f"Cooldown {cooldown_meters}m",
+        "endCondition": {"conditionTypeId": 3, "conditionTypeKey": "distance"},
+        "endConditionValue": float(cooldown_meters),
+        "targetType": None,
+    })
+
+    set_summary = ", ".join(
+        f"{e.get('repeats', 1)}x{e['distance_meters']}m" for e in main_set
+    )
+    auto_desc = description or (
+        f"{warmup_meters}m warmup + {set_summary} + {cooldown_meters}m cooldown"
+    )
+
+    return {
+        "workoutName": name,
+        "description": auto_desc,
+        "sportType": swim_sport,
+        "workoutSegments": [{
+            "segmentOrder": 1,
+            "sportType": swim_sport,
+            "workoutSteps": steps,
+        }],
+    }
+
+
 # =============================================================================
 # MCP TOOLS
 # =============================================================================
@@ -351,6 +497,59 @@ def register_tools(app):
             return json.dumps(result, indent=2)
         except Exception as e:
             return f"Error creating strength workout: {str(e)}"
+
+    @app.tool()
+    async def create_swim_workout(
+        name: str,
+        main_set: List[Dict[str, Any]],
+        warmup_meters: int = 200,
+        cooldown_meters: int = 100,
+        description: str = "",
+    ) -> str:
+        """Create a lap swimming workout and upload it to Garmin Connect.
+
+        Builds the Garmin JSON automatically from a human-readable main set
+        description and returns the new workout ID.
+
+        Args:
+            name: Workout name (e.g. "Friday Intervals")
+            main_set: List of interval groups. Each dict has:
+                - distance_meters (int): distance of each interval in metres
+                - repeats (int): number of repetitions (>1 uses a RepeatGroup)
+                - rest_seconds (int): rest between reps in seconds (0 = no rest step)
+                - pace_slow (str, optional): slowest target pace as 'M:SS' per 100m
+                - pace_fast (str, optional): fastest target pace as 'M:SS' per 100m
+                - stroke_type (str, optional): swim stroke — one of: freestyle,
+                  backstroke, breaststroke, butterfly, choice, im, im_by_round,
+                  rimo, mixed
+                - drill_type (str, optional): drill technique — one of: kick, pull,
+                  drill (independent of stroke_type; omit for no drill)
+            warmup_meters: Warmup distance in metres (default 200)
+            cooldown_meters: Cooldown distance in metres (default 100)
+            description: Optional workout description (auto-generated if omitted)
+        """
+        try:
+            workout_json = build_swim_workout_json(
+                name=name,
+                warmup_meters=warmup_meters,
+                main_set=main_set,
+                cooldown_meters=cooldown_meters,
+                description=description,
+            )
+            result = garmin_client.upload_workout(workout_json)
+
+            if isinstance(result, dict):
+                curated = {
+                    "status": "success",
+                    "workout_id": result.get("workoutId"),
+                    "name": result.get("workoutName"),
+                    "message": "Workout uploaded successfully",
+                }
+                curated = {k: v for k, v in curated.items() if v is not None}
+                return json.dumps(curated, indent=2)
+            return json.dumps(result, indent=2)
+        except Exception as e:
+            return f"Error creating swim workout: {str(e)}"
 
     @app.tool()
     async def schedule_week(week: List[Dict[str, Any]]) -> str:

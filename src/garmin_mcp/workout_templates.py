@@ -230,6 +230,150 @@ STRENGTH_CIRCUIT_TEMPLATE = {
     }]
 }
 
+SWIM_INTERVALS_TEMPLATE = {
+    "workoutName": "Swim Intervals",
+    "description": "200m warmup + 4x100m intervals (2:00-2:30/100m, 30s rest) + 100m cooldown",
+    "sportType": {"sportTypeId": 4, "sportTypeKey": "swimming"},
+    "workoutSegments": [{
+        "segmentOrder": 1,
+        "sportType": {"sportTypeId": 4, "sportTypeKey": "swimming"},
+        "workoutSteps": [
+            {
+                "type": "ExecutableStepDTO",
+                "stepOrder": 1,
+                "stepType": {"stepTypeId": 1, "stepTypeKey": "warmup"},
+                "description": "Warmup 200m",
+                "endCondition": {"conditionTypeId": 3, "conditionTypeKey": "distance"},
+                "endConditionValue": 200.0,
+                "targetType": None
+            },
+            {
+                "type": "RepeatGroupDTO",
+                "stepOrder": 2,
+                "numberOfIterations": 4,
+                "workoutSteps": [
+                    {
+                        "type": "ExecutableStepDTO",
+                        "stepOrder": 1,
+                        "stepType": {"stepTypeId": 3, "stepTypeKey": "interval"},
+                        "description": "100m interval (2:00-2:30/100m)",
+                        "endCondition": {"conditionTypeId": 3, "conditionTypeKey": "distance"},
+                        "endConditionValue": 100.0,
+                        "targetType": None,
+                        "secondaryTargetType": {
+                            "workoutTargetTypeId": 6,
+                            "workoutTargetTypeKey": "pace.zone"
+                        },
+                        "secondaryTargetValueOne": 0.6666667,
+                        "secondaryTargetValueTwo": 0.8333333
+                    },
+                    {
+                        "type": "ExecutableStepDTO",
+                        "stepOrder": 2,
+                        "stepType": {"stepTypeId": 5, "stepTypeKey": "rest"},
+                        "description": "Rest 30s",
+                        "endCondition": {"conditionTypeId": 8, "conditionTypeKey": "fixed.rest"},
+                        "endConditionValue": 30.0,
+                        "targetType": None
+                    }
+                ]
+            },
+            {
+                "type": "ExecutableStepDTO",
+                "stepOrder": 3,
+                "stepType": {"stepTypeId": 2, "stepTypeKey": "cooldown"},
+                "description": "Cooldown 100m",
+                "endCondition": {"conditionTypeId": 3, "conditionTypeKey": "distance"},
+                "endConditionValue": 100.0,
+                "targetType": None
+            }
+        ]
+    }]
+}
+
+SWIM_WITH_DRILLS_TEMPLATE = {
+    "workoutName": "Swim with Drills",
+    "description": "200m warmup + 4x50m kick drill (freestyle, 15s rest) + 4x100m intervals (freestyle, 30s rest) + 100m cooldown",
+    "sportType": {"sportTypeId": 4, "sportTypeKey": "swimming"},
+    "workoutSegments": [{
+        "segmentOrder": 1,
+        "sportType": {"sportTypeId": 4, "sportTypeKey": "swimming"},
+        "workoutSteps": [
+            {
+                "type": "ExecutableStepDTO",
+                "stepOrder": 1,
+                "stepType": {"stepTypeId": 1, "stepTypeKey": "warmup"},
+                "description": "Warmup 200m",
+                "endCondition": {"conditionTypeId": 3, "conditionTypeKey": "distance"},
+                "endConditionValue": 200.0,
+                "targetType": None
+            },
+            {
+                "type": "RepeatGroupDTO",
+                "stepOrder": 2,
+                "numberOfIterations": 4,
+                "workoutSteps": [
+                    {
+                        "type": "ExecutableStepDTO",
+                        "stepOrder": 1,
+                        "stepType": {"stepTypeId": 3, "stepTypeKey": "interval"},
+                        "description": "50m kick drill",
+                        "endCondition": {"conditionTypeId": 3, "conditionTypeKey": "distance"},
+                        "endConditionValue": 50.0,
+                        "targetType": None,
+                        "strokeType": {"strokeTypeId": 0, "strokeTypeKey": "freestyle", "displayOrder": 1},
+                        "drillType": {"drillTypeId": 1, "drillTypeKey": "kick", "displayOrder": 1}
+                    },
+                    {
+                        "type": "ExecutableStepDTO",
+                        "stepOrder": 2,
+                        "stepType": {"stepTypeId": 5, "stepTypeKey": "rest"},
+                        "description": "Rest 15s",
+                        "endCondition": {"conditionTypeId": 8, "conditionTypeKey": "fixed.rest"},
+                        "endConditionValue": 15.0,
+                        "targetType": None
+                    }
+                ]
+            },
+            {
+                "type": "RepeatGroupDTO",
+                "stepOrder": 3,
+                "numberOfIterations": 4,
+                "workoutSteps": [
+                    {
+                        "type": "ExecutableStepDTO",
+                        "stepOrder": 1,
+                        "stepType": {"stepTypeId": 3, "stepTypeKey": "interval"},
+                        "description": "100m interval",
+                        "endCondition": {"conditionTypeId": 3, "conditionTypeKey": "distance"},
+                        "endConditionValue": 100.0,
+                        "targetType": None,
+                        "strokeType": {"strokeTypeId": 0, "strokeTypeKey": "freestyle", "displayOrder": 1}
+                    },
+                    {
+                        "type": "ExecutableStepDTO",
+                        "stepOrder": 2,
+                        "stepType": {"stepTypeId": 5, "stepTypeKey": "rest"},
+                        "description": "Rest 30s",
+                        "endCondition": {"conditionTypeId": 8, "conditionTypeKey": "fixed.rest"},
+                        "endConditionValue": 30.0,
+                        "targetType": None
+                    }
+                ]
+            },
+            {
+                "type": "ExecutableStepDTO",
+                "stepOrder": 4,
+                "stepType": {"stepTypeId": 2, "stepTypeKey": "cooldown"},
+                "description": "Cooldown 100m",
+                "endCondition": {"conditionTypeId": 3, "conditionTypeKey": "distance"},
+                "endConditionValue": 100.0,
+                "targetType": None
+            }
+        ]
+    }]
+}
+
 # Reference documentation for workout structure
 WORKOUT_STRUCTURE_REFERENCE = {
     "description": "Reference guide for Garmin workout JSON structure",
@@ -250,6 +394,7 @@ WORKOUT_STRUCTURE_REFERENCE = {
         "2": {"conditionTypeKey": "time", "description": "Duration in seconds"},
         "3": {"conditionTypeKey": "distance", "description": "Distance in meters"},
         "7": {"conditionTypeKey": "iterations", "description": "Number of iterations (used internally by RepeatGroupDTO)"},
+        "8": {"conditionTypeKey": "fixed.rest", "description": "Fixed rest period in seconds (swim workouts — used for rest steps between intervals)"},
         "10": {"conditionTypeKey": "reps", "description": "Number of repetitions (use for strength exercises)"}
     },
     "targetType_values": {
@@ -270,6 +415,38 @@ WORKOUT_STRUCTURE_REFERENCE = {
         "11": {"sportTypeKey": "mobility"},
         "12": {"sportTypeKey": "walking"},
         "13": {"sportTypeKey": "rucking"}
+    },
+    "swim_training_fields": {
+        "description": "Swim steps use secondary pace targets; the primary targetType is null",
+        "targetType": "null — always None/null for swim steps",
+        "secondaryTargetType": "Pace target object: {workoutTargetTypeId: 6, workoutTargetTypeKey: 'pace.zone'}",
+        "secondaryTargetValueOne": "Slower speed bound in m/s (e.g. 0.6667 ≈ 2:30/100m)",
+        "secondaryTargetValueTwo": "Faster speed bound in m/s (e.g. 0.8333 ≈ 2:00/100m)",
+        "pace_formula": "speed_mps = 100 / (minutes * 60 + seconds_part)",
+        "strokeType": {
+            "description": "Optional swim stroke for the step. Set on ExecutableStepDTO as strokeType: {strokeTypeId, strokeTypeKey, displayOrder}",
+            "note": "strokeTypeId values are inferred from FIT SDK + UI — validate against a live API response",
+            "valid_stroke_keys": {
+                "freestyle":    {"strokeTypeId": 0, "displayOrder": 1},
+                "backstroke":   {"strokeTypeId": 1, "displayOrder": 2},
+                "breaststroke": {"strokeTypeId": 2, "displayOrder": 3},
+                "butterfly":    {"strokeTypeId": 3, "displayOrder": 4},
+                "choice":       {"strokeTypeId": 4, "displayOrder": 5},
+                "im":           {"strokeTypeId": 5, "displayOrder": 6},
+                "im_by_round":  {"strokeTypeId": 6, "displayOrder": 7},
+                "rimo":         {"strokeTypeId": 7, "displayOrder": 8},
+                "mixed":        {"strokeTypeId": 8, "displayOrder": 9}
+            }
+        },
+        "drillType": {
+            "description": "Optional drill technique for the step, separate from strokeType. Set as drillType: {drillTypeId, drillTypeKey, displayOrder}",
+            "note": "drillTypeId values are not publicly documented — validate against a live API response",
+            "valid_drill_keys": {
+                "kick":  {"drillTypeId": 1, "displayOrder": 1},
+                "pull":  {"drillTypeId": 2, "displayOrder": 2},
+                "drill": {"drillTypeId": 3, "displayOrder": 3}
+            }
+        }
     },
     "strength_training_fields": {
         "description": "Additional fields for strength training workout steps (ExecutableStepDTO)",
@@ -319,6 +496,28 @@ def register_resources(app):
         3 rounds of 10min work + 2min rest.
         """
         return json.dumps(STRENGTH_CIRCUIT_TEMPLATE, indent=2)
+
+    @app.resource("workout://templates/swim-with-drills")
+    async def get_swim_drills_template() -> str:
+        """Swim workout template demonstrating strokeType and drillType fields
+
+        Shows a complete session with a freestyle kick-drill set followed by
+        freestyle intervals. Demonstrates the strokeType and drillType step
+        fields confirmed in the Garmin Connect UI.
+        Note: strokeTypeId and drillTypeId values should be validated against
+        a live API response.
+        """
+        return json.dumps(SWIM_WITH_DRILLS_TEMPLATE, indent=2)
+
+    @app.resource("workout://templates/swim-intervals")
+    async def get_swim_template() -> str:
+        """Swim interval workout template with secondary pace targets and fixed rest
+
+        Demonstrates the swim-specific JSON fields: secondary pace targets
+        (in m/s), fixed.rest end condition, and distance-based steps.
+        Template: 200m warmup + 4x100m intervals + 100m cooldown.
+        """
+        return json.dumps(SWIM_INTERVALS_TEMPLATE, indent=2)
 
     @app.resource("workout://reference/structure")
     async def get_structure_reference() -> str:
