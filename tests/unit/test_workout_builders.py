@@ -199,6 +199,35 @@ def test_build_swim_workout_json_stroke_and_drill_combined():
     assert interval["drillType"]["drillTypeId"] == SWIM_DRILL_TYPES["pull"]["drillTypeId"]
 
 
+def test_build_swim_workout_json_step_description():
+    result = build_swim_workout_json(
+        name="Drill Focus",
+        warmup_meters=200,
+        main_set=[{
+            "distance_meters": 50,
+            "repeats": 4,
+            "rest_seconds": 15,
+            "drill_type": "kick",
+            "description": "Kick only — eyes down, tight core, ankles loose",
+        }],
+        cooldown_meters=100,
+    )
+    interval = result["workoutSegments"][0]["workoutSteps"][1]["workoutSteps"][0]
+    assert interval["description"] == "Kick only — eyes down, tight core, ankles loose"
+
+
+def test_build_swim_workout_json_hr_zone():
+    result = build_swim_workout_json(
+        name="Z2 Swim",
+        warmup_meters=200,
+        main_set=[{"distance_meters": 100, "repeats": 4, "rest_seconds": 30, "hr_zone": 2}],
+        cooldown_meters=100,
+    )
+    interval = result["workoutSegments"][0]["workoutSteps"][1]["workoutSteps"][0]
+    assert interval["targetType"]["workoutTargetTypeKey"] == "heart.rate.zone"
+    assert interval["zoneNumber"] == 2
+
+
 def test_build_swim_workout_json_invalid_stroke_type_ignored():
     result = build_swim_workout_json(
         name="Easy Swim",

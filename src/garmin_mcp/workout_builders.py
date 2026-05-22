@@ -273,6 +273,7 @@ def build_swim_workout_json(
         rest_seconds (int): rest between reps using fixed.rest (0 = no rest step)
         pace_slow (str, optional): slowest target pace as 'M:SS' per 100m
         pace_fast (str, optional): fastest target pace as 'M:SS' per 100m
+        hr_zone (int, optional): heart-rate zone target 1-5 (mutually exclusive with pace)
         stroke_type (str, optional): one of freestyle|backstroke|breaststroke|butterfly|
             choice|im|im_by_round|rimo|mixed
         drill_type (str, optional): one of kick|pull|drill (independent of stroke_type)
@@ -298,12 +299,13 @@ def build_swim_workout_json(
         rest_secs = int(entry.get("rest_seconds", 0))
         pace_slow = entry.get("pace_slow")
         pace_fast = entry.get("pace_fast")
+        step_desc = entry.get("description") or f"{dist}m"
 
         interval_step: dict = {
             "type": "ExecutableStepDTO",
             "stepOrder": 1 if repeats > 1 else step_order,
             "stepType": {"stepTypeId": 3, "stepTypeKey": "interval"},
-            "description": f"{dist}m",
+            "description": step_desc,
             "endCondition": {"conditionTypeId": 3, "conditionTypeKey": "distance"},
             "endConditionValue": float(dist),
             "targetType": None,
@@ -315,6 +317,14 @@ def build_swim_workout_json(
             }
             interval_step["secondaryTargetValueOne"] = _pace_to_mps(pace_slow)
             interval_step["secondaryTargetValueTwo"] = _pace_to_mps(pace_fast)
+
+        hr_zone = entry.get("hr_zone")
+        if hr_zone is not None:
+            interval_step["targetType"] = {
+                "workoutTargetTypeId": 4,
+                "workoutTargetTypeKey": "heart.rate.zone",
+            }
+            interval_step["zoneNumber"] = int(hr_zone)
 
         stroke_key = entry.get("stroke_type", "").lower()
         drill_key = entry.get("drill_type", "").lower()
@@ -508,25 +518,31 @@ def register_tools(app):
     ) -> str:
         """Create a lap swimming workout and upload it to Garmin Connect.
 
-        Builds the Garmin JSON automatically from a human-readable main set
-        description and returns the new workout ID.
+        Builds the Garmin workout JSON and returns the new workout ID.
+
+        Structure: fixed warmup → main_set entries (in order) → fixed cooldown.
+        All distances are in METRES. Do NOT pass pool lengths, step counts, or
+        JSON strings — use the typed parameters below.
 
         Args:
-            name: Workout name (e.g. "Friday Intervals")
-            main_set: List of interval groups. Each dict has:
-                - distance_meters (int): distance of each interval in metres
-                - repeats (int): number of repetitions (>1 uses a RepeatGroup)
-                - rest_seconds (int): rest between reps in seconds (0 = no rest step)
-                - pace_slow (str, optional): slowest target pace as 'M:SS' per 100m
-                - pace_fast (str, optional): fastest target pace as 'M:SS' per 100m
-                - stroke_type (str, optional): swim stroke — one of: freestyle,
-                  backstroke, breaststroke, butterfly, choice, im, im_by_round,
-                  rimo, mixed
-                - drill_type (str, optional): drill technique — one of: kick, pull,
-                  drill (independent of stroke_type; omit for no drill)
-            warmup_meters: Warmup distance in metres (default 200)
-            cooldown_meters: Cooldown distance in metres (default 100)
-            description: Optional workout description (auto-generated if omitted)
+            name: Workout name.
+            main_set: List of dicts, each describing one block of the main set.
+                Required keys per entry:
+                  distance_meters (int) — metres per repetition
+                  repeats         (int) — number of reps; >1 creates a repeat group
+                  rest_seconds    (int) — fixed rest between reps (0 = no rest step)
+                Optional keys per entry:
+                  description (str) — step note shown in Garmin Connect, e.g.
+                                      drill focus cues or technique reminders
+                  stroke_type (str) — one of: freestyle, backstroke, breaststroke,
+                                      butterfly, choice, im, im_by_round, rimo, mixed
+                  drill_type  (str) — one of: kick, pull, drill
+                  hr_zone     (int) — heart-rate zone 1-5 (do not combine with pace)
+                  pace_slow   (str) — slowest target pace as "M:SS" per 100 m
+                  pace_fast   (str) — fastest target pace as "M:SS" per 100 m
+            warmup_meters:   Warmup distance in metres (default 200).
+            cooldown_meters: Cooldown distance in metres (default 100).
+            description:     Optional free-text description (auto-generated if blank).
         """
         try:
             workout_json = build_swim_workout_json(
