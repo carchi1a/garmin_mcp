@@ -244,6 +244,35 @@ def _curate_workout_details(workout: dict) -> dict:
     return {k: v for k, v in details.items() if v is not None}
 
 
+def _delete_single_workout(workout_id: int) -> dict:
+    """Delete one workout and report the true outcome.
+
+    garminconnect's delete returns parsed JSON (a dict or None), never a
+    Response object: HTTP errors surface as exceptions, so a normal return
+    means the deletion succeeded. A 404 means the workout was already gone
+    and is reported distinctly from success.
+    """
+    try:
+        garmin_client.delete_workout(workout_id)
+        return {
+            "status": "success",
+            "workout_id": workout_id,
+            "message": f"Workout {workout_id} deleted successfully"
+        }
+    except Exception as e:
+        if "404" in str(e):
+            return {
+                "status": "not_found",
+                "workout_id": workout_id,
+                "message": f"Workout {workout_id} not found (already deleted?)"
+            }
+        return {
+            "status": "error",
+            "workout_id": workout_id,
+            "message": f"Error deleting workout: {str(e)}"
+        }
+
+
 def _curate_scheduled_workout(scheduled: dict) -> dict:
     """Extract essential scheduled workout information from GraphQL response"""
     # GraphQL response has workout data at top level (not nested)
@@ -252,6 +281,7 @@ def _curate_scheduled_workout(scheduled: dict) -> dict:
 
     summary = {
         "date": scheduled.get('scheduleDate'),
+        "schedule_id": scheduled.get('scheduledWorkoutId'),
         "workout_uuid": scheduled.get('workoutUuid'),
         "workout_id": scheduled.get('workoutId'),
         "name": scheduled.get('workoutName'),
@@ -546,25 +576,8 @@ def register_tools(app):
         Args:
             workout_id: ID of the workout to delete (get IDs from get_workouts)
         """
-        try:
-            url = f"{garmin_client.garmin_workouts}/workout/{workout_id}"
-            response = garmin_client.client.delete("connectapi", url, api=True)
-
-            if response.status_code == 204 or response.status_code == 200:
-                return json.dumps({
-                    "status": "success",
-                    "workout_id": workout_id,
-                    "message": f"Workout {workout_id} deleted successfully"
-                }, indent=2)
-            else:
-                return json.dumps({
-                    "status": "failed",
-                    "workout_id": workout_id,
-                    "http_status": response.status_code,
-                    "message": f"Failed to delete workout: HTTP {response.status_code}"
-                }, indent=2)
-        except Exception as e:
-            return f"Error deleting workout: {str(e)}"
+        result = _delete_single_workout(workout_id)
+        return json.dumps(result, indent=2)
 
     @app.tool()
     async def delete_workouts(workout_ids: list[int]) -> str:
@@ -575,31 +588,7 @@ def register_tools(app):
         Args:
             workout_ids: List of workout IDs to delete (get IDs from get_workouts)
         """
-        results = []
-        for workout_id in workout_ids:
-            try:
-                url = f"{garmin_client.garmin_workouts}/workout/{workout_id}"
-                response = garmin_client.client.delete("connectapi", url, api=True)
-
-                if response.status_code in (200, 204):
-                    results.append({
-                        "status": "success",
-                        "workout_id": workout_id,
-                        "message": f"Workout {workout_id} deleted successfully"
-                    })
-                else:
-                    results.append({
-                        "status": "failed",
-                        "workout_id": workout_id,
-                        "http_status": response.status_code,
-                        "message": f"Failed to delete workout: HTTP {response.status_code}"
-                    })
-            except Exception as e:
-                results.append({
-                    "status": "error",
-                    "workout_id": workout_id,
-                    "message": f"Error deleting workout: {str(e)}"
-                })
+        results = [_delete_single_workout(workout_id) for workout_id in workout_ids]
 
         total = len(results)
         succeeded = sum(1 for r in results if r["status"] == "success")
@@ -739,6 +728,35 @@ def register_tools(app):
                 }, indent=2)
         except Exception as e:
             return f"Error scheduling workout: {str(e)}"
+
+    @app.tool()
+    async def unschedule_workout(schedule_id: int) -> str:
+        """Remove a scheduled workout from the Garmin Connect calendar
+
+        Removes the calendar entry only — the workout itself stays in your
+        workout library. Use the schedule_id from get_scheduled_workouts
+        (NOT the workout_id).
+
+        Args:
+            schedule_id: Schedule entry ID (schedule_id field from get_scheduled_workouts)
+        """
+        try:
+            url = f"workout-service/schedule/{schedule_id}"
+            # HTTP errors raise; a normal return means the removal succeeded
+            garmin_client.client.delete("connectapi", url, api=True)
+            return json.dumps({
+                "status": "success",
+                "schedule_id": schedule_id,
+                "message": f"Schedule entry {schedule_id} removed from calendar"
+            }, indent=2)
+        except Exception as e:
+            if "404" in str(e):
+                return json.dumps({
+                    "status": "not_found",
+                    "schedule_id": schedule_id,
+                    "message": f"Schedule entry {schedule_id} not found (already removed?)"
+                }, indent=2)
+            return f"Error unscheduling workout: {str(e)}"
 
     @app.tool()
     async def schedule_workouts(schedules: list[dict]) -> str:

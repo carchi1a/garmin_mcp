@@ -5,7 +5,7 @@ These tools construct the internal Garmin Connect JSON internally and delegate
 to the existing upload_workout / schedule_workout endpoints.
 """
 import json
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 # The garmin_client will be set by the main file
 garmin_client = None
@@ -617,33 +617,32 @@ def register_tools(app):
         Args:
             week: List of dicts with keys: date (YYYY-MM-DD), workout_id (int)
         """
-        try:
-            results = []
-            for item in week:
-                calendar_date = item["date"]
-                workout_id = int(item["workout_id"])
+        results = []
+        for item in week:
+            calendar_date = item.get("date")
+            workout_id = item.get("workout_id")
+            try:
+                workout_id = int(workout_id)
                 url = f"workout-service/schedule/{workout_id}"
-                response = garmin_client.garth.post(
-                    "connectapi", url, json={"date": calendar_date}
+                # HTTP errors raise; a normal return means the schedule succeeded
+                garmin_client.client.post(
+                    "connectapi", url, json={"date": calendar_date}, api=True
                 )
-                if response.status_code == 200:
-                    results.append({
-                        "date": calendar_date,
-                        "workout_id": workout_id,
-                        "status": "scheduled",
-                    })
-                else:
-                    results.append({
-                        "date": calendar_date,
-                        "workout_id": workout_id,
-                        "status": "failed",
-                        "http_status": response.status_code,
-                    })
-            return json.dumps({
-                "status": "complete",
-                "scheduled": results,
-            }, indent=2)
-        except Exception as e:
-            return f"Error scheduling week: {str(e)}"
+                results.append({
+                    "date": calendar_date,
+                    "workout_id": workout_id,
+                    "status": "scheduled",
+                })
+            except Exception as e:
+                results.append({
+                    "date": calendar_date,
+                    "workout_id": workout_id,
+                    "status": "error",
+                    "message": str(e),
+                })
+        return json.dumps({
+            "status": "complete",
+            "scheduled": results,
+        }, indent=2)
 
     return app
