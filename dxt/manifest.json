@@ -1,5 +1,5 @@
 {
-  "manifest_version": "0.3",
+  "manifest_version": "0.4",
   "name": "garmin-mcp",
   "display_name": "Garmin Connect",
   "version": "0.1.0",
@@ -30,16 +30,16 @@
     "mcp_config": {
       "command": "uvx",
       "args": [
+        "tool",
+        "run",
         "--python",
         "3.12",
         "--from",
-        "git+https://github.com/Taxuspt/garmin_mcp",
+        "git+https://github.com/carchi1a/garmin_mcp@feat/swim-workout",
         "garmin-mcp"
       ],
       "env": {
-        "GARMINTOKENS": "${user_config.token_path}",
-        "GARMIN_EMAIL": "${user_config.garmin_email}",
-        "GARMIN_PASSWORD": "${user_config.garmin_password}"
+        "GARMINTOKENS": "${user_config.token_path}"
       }
     }
   },
@@ -50,20 +50,6 @@
       "description": "Directory where your Garmin OAuth tokens are stored. You must run garmin-mcp-auth once in a terminal to generate these tokens before using the server.",
       "required": false,
       "default": "${HOME}/.garminconnect"
-    },
-    "garmin_email": {
-      "type": "string",
-      "title": "Garmin email (optional)",
-      "description": "Your Garmin Connect email address. Leave blank if you have already run garmin-mcp-auth.",
-      "required": false,
-      "sensitive": false
-    },
-    "garmin_password": {
-      "type": "string",
-      "title": "Garmin password (optional)",
-      "description": "Your Garmin Connect password. Leave blank if you have already run garmin-mcp-auth.",
-      "required": false,
-      "sensitive": true
     }
   },
   "tools": [

@@ -377,9 +377,18 @@ def register_tools(app):
 
     @app.tool()
     async def upload_workout(workout_data: dict) -> str:
-        """Upload a workout from JSON data
+        """Upload a workout from raw JSON data to Garmin Connect.
 
-        Creates a new workout in Garmin Connect from structured workout data.
+        Creates a new workout from a fully-constructed JSON payload.
+
+        ROUTING: For specific workout types, prefer these dedicated tools instead:
+        - Pool swimming → use create_swim_workout (handles pool length, stroke/drill
+          types, distance-based steps, and Garmin's swim JSON format automatically)
+        - Run/walk intervals → use create_walk_run_workout
+        - Z2 walking → use create_z2_walk_workout
+        - Strength → use create_strength_workout
+        Use upload_workout only when you need full control over the raw JSON, or for
+        workout types not covered by the dedicated builders above.
 
         IMPORTANT: Step types must use Garmin's DTO format:
         - Use "ExecutableStepDTO" for regular steps (warmup, interval, cooldown, recovery)

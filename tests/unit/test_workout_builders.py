@@ -199,6 +199,27 @@ def test_build_swim_workout_json_stroke_and_drill_combined():
     assert interval["drillType"]["drillTypeId"] == SWIM_DRILL_TYPES["pull"]["drillTypeId"]
 
 
+def test_build_swim_workout_json_pool_length():
+    result = build_swim_workout_json(
+        name="50m Pool Swim",
+        warmup_meters=200,
+        main_set=[{"distance_meters": 100, "repeats": 4, "rest_seconds": 30}],
+        cooldown_meters=100,
+        pool_length_meters=50.0,
+    )
+    assert result["poolLength"] == 50.0
+    assert result["poolLengthUnit"]["unitKey"] == "meter"
+    assert result["poolLengthUnit"]["unitId"] == 1
+
+    result_default = build_swim_workout_json(
+        name="Default Pool",
+        warmup_meters=100,
+        main_set=[{"distance_meters": 100, "repeats": 2, "rest_seconds": 20}],
+        cooldown_meters=100,
+    )
+    assert result_default["poolLength"] == 25.0
+
+
 def test_build_swim_workout_json_step_description():
     result = build_swim_workout_json(
         name="Drill Focus",

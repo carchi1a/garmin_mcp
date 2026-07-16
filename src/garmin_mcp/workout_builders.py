@@ -263,6 +263,7 @@ def build_swim_workout_json(
     warmup_meters: int,
     main_set: List[Dict[str, Any]],
     cooldown_meters: int,
+    pool_length_meters: float = 25.0,
     description: str = "",
 ) -> dict:
     """Build the Garmin Connect JSON for a swim (lap swimming) workout.
@@ -377,6 +378,8 @@ def build_swim_workout_json(
         "workoutName": name,
         "description": auto_desc,
         "sportType": swim_sport,
+        "poolLength": float(pool_length_meters),
+        "poolLengthUnit": {"unitId": 1, "unitKey": "meter", "factor": 100.0},
         "workoutSegments": [{
             "segmentOrder": 1,
             "sportType": swim_sport,
@@ -512,13 +515,16 @@ def register_tools(app):
     async def create_swim_workout(
         name: str,
         main_set: List[Dict[str, Any]],
+        pool_length_meters: float = 25.0,
         warmup_meters: int = 200,
         cooldown_meters: int = 100,
         description: str = "",
     ) -> str:
-        """Create a lap swimming workout and upload it to Garmin Connect.
+        """PREFERRED tool for creating pool (lap) swimming workouts on Garmin Connect.
 
-        Builds the Garmin workout JSON and returns the new workout ID.
+        Use this instead of upload_workout for any swim workout. It automatically
+        handles pool length, stroke types, drill types, HR zone targets, distance-
+        based steps, and Garmin's swim-specific JSON format.
 
         Structure: fixed warmup → main_set entries (in order) → fixed cooldown.
         All distances are in METRES. Do NOT pass pool lengths, step counts, or
@@ -540,6 +546,9 @@ def register_tools(app):
                   hr_zone     (int) — heart-rate zone 1-5 (do not combine with pace)
                   pace_slow   (str) — slowest target pace as "M:SS" per 100 m
                   pace_fast   (str) — fastest target pace as "M:SS" per 100 m
+            pool_length_meters: Length of the pool in metres (default 25). Common
+                                values: 25 (short course), 50 (long course), 22.86
+                                (25 yards). Used by the watch to measure distance per lap.
             warmup_meters:   Warmup distance in metres (default 200).
             cooldown_meters: Cooldown distance in metres (default 100).
             description:     Optional free-text description (auto-generated if blank).
@@ -550,6 +559,7 @@ def register_tools(app):
                 warmup_meters=warmup_meters,
                 main_set=main_set,
                 cooldown_meters=cooldown_meters,
+                pool_length_meters=pool_length_meters,
                 description=description,
             )
             result = garmin_client.upload_workout(workout_json)
