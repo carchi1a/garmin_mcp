@@ -1,6 +1,8 @@
 import json
 import os
 
+import pytest
+
 from garmin_mcp.workout_builders import (
     build_walk_run_json,
     build_z2_walk_json,
@@ -130,11 +132,64 @@ def test_build_swim_workout_json_single_repeat():
         cooldown_meters=100,
     )
     steps = result["workoutSegments"][0]["workoutSteps"]
-    # warmup + single interval step (no RepeatGroupDTO) + cooldown = 3 steps
-    assert len(steps) == 3
+    # warmup + single interval step (no RepeatGroupDTO) + rest + cooldown = 4 steps
+    assert len(steps) == 4
     assert steps[1]["type"] == "ExecutableStepDTO"
     assert steps[1]["stepType"]["stepTypeKey"] == "interval"
     assert steps[1]["endConditionValue"] == 400.0
+    assert steps[2]["stepType"]["stepTypeKey"] == "rest"
+    assert steps[2]["endCondition"]["conditionTypeKey"] == "fixed.rest"
+    assert steps[2]["endConditionValue"] == 60.0
+
+
+def test_build_swim_workout_json_single_repeat_no_rest():
+    result = build_swim_workout_json(
+        name="Single Effort No Rest",
+        warmup_meters=100,
+        main_set=[{"distance_meters": 400, "repeats": 1, "rest_seconds": 0}],
+        cooldown_meters=100,
+    )
+    steps = result["workoutSegments"][0]["workoutSteps"]
+    # warmup + interval + cooldown = 3 steps, no rest step
+    assert len(steps) == 3
+    assert steps[1]["stepType"]["stepTypeKey"] == "interval"
+    assert steps[2]["stepType"]["stepTypeKey"] == "cooldown"
+
+
+def test_build_swim_workout_json_standalone_rest():
+    result = build_swim_workout_json(
+        name="Rest Between Blocks",
+        warmup_meters=100,
+        main_set=[
+            {"distance_meters": 100, "repeats": 4, "rest_seconds": 20},
+            {"rest_seconds": 60},
+            {"distance_meters": 200, "repeats": 2, "rest_seconds": 30},
+        ],
+        cooldown_meters=100,
+    )
+    steps = result["workoutSegments"][0]["workoutSteps"]
+    # warmup + repeat group + standalone rest + repeat group + cooldown = 5 steps
+    assert len(steps) == 5
+    rest = steps[2]
+    assert rest["type"] == "ExecutableStepDTO"
+    assert rest["stepType"]["stepTypeKey"] == "rest"
+    assert rest["stepType"]["stepTypeId"] == 5
+    assert rest["endCondition"]["conditionTypeKey"] == "fixed.rest"
+    assert rest["endConditionValue"] == 60.0
+    # step orders stay sequential
+    assert [s["stepOrder"] for s in steps] == [1, 2, 3, 4, 5]
+    # description summarises the rest entry
+    assert "60s rest" in result["description"]
+
+
+def test_build_swim_workout_json_empty_entry_raises():
+    with pytest.raises(ValueError, match="distance_meters, rest_seconds"):
+        build_swim_workout_json(
+            name="Bad Entry",
+            warmup_meters=100,
+            main_set=[{"repeats": 2}],
+            cooldown_meters=100,
+        )
 
 
 def test_build_swim_workout_json_no_pace():

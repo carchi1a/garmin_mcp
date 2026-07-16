@@ -30,7 +30,7 @@ HR_ZONE_MAP = {
 }
 
 # strokeTypeId values are inferred from the Garmin FIT SDK and UI observation.
-# ⚠️ Validate against a live API response — workout builder IDs may differ from FIT SDK.
+# ⚠️ Validate against a live API response - workout builder IDs may differ from FIT SDK.
 SWIM_STROKE_TYPES = {
     "freestyle":    {"strokeTypeId": 0, "strokeTypeKey": "freestyle",    "displayOrder": 1},
     "backstroke":   {"strokeTypeId": 1, "strokeTypeKey": "backstroke",   "displayOrder": 2},
@@ -72,6 +72,19 @@ def _pace_to_mps(pace_str: str) -> float:
     parts = pace_str.strip().split(":")
     total_seconds = int(parts[0]) * 60 + int(parts[1])
     return round(100.0 / total_seconds, 7)
+
+
+def _swim_rest_step(step_order: int, rest_seconds: int, description: str = "") -> dict:
+    """Build a fixed-duration swim rest step (stepTypeId 5 / fixed.rest)."""
+    return {
+        "type": "ExecutableStepDTO",
+        "stepOrder": step_order,
+        "stepType": {"stepTypeId": 5, "stepTypeKey": "rest"},
+        "description": description or f"Rest {rest_seconds}s",
+        "endCondition": {"conditionTypeId": 8, "conditionTypeKey": "fixed.rest"},
+        "endConditionValue": float(rest_seconds),
+        "targetType": None,
+    }
 
 
 def build_walk_run_json(
@@ -269,15 +282,20 @@ def build_swim_workout_json(
     """Build the Garmin Connect JSON for a swim (lap swimming) workout.
 
     Each entry in main_set may have:
-        distance_meters (int): distance per interval
+        distance_meters (int): distance per interval; omit for a standalone rest step
         repeats (int): number of repetitions (>1 wraps in RepeatGroupDTO)
-        rest_seconds (int): rest between reps using fixed.rest (0 = no rest step)
+        rest_seconds (int): rest after each rep using fixed.rest (0 = no rest step);
+            with repeats > 1 the rest goes inside the repeat group, with repeats == 1
+            it follows the interval as its own step
         pace_slow (str, optional): slowest target pace as 'M:SS' per 100m
         pace_fast (str, optional): fastest target pace as 'M:SS' per 100m
         hr_zone (int, optional): heart-rate zone target 1-5 (mutually exclusive with pace)
         stroke_type (str, optional): one of freestyle|backstroke|breaststroke|butterfly|
             choice|im|im_by_round|rimo|mixed
         drill_type (str, optional): one of kick|pull|drill (independent of stroke_type)
+
+    An entry with rest_seconds but no distance_meters becomes a standalone rest
+    step (e.g. {"rest_seconds": 60} between two main-set blocks).
     """
     swim_sport = {"sportTypeId": 4, "sportTypeKey": "swimming"}
     steps: List[dict] = []
@@ -295,9 +313,22 @@ def build_swim_workout_json(
     step_order += 1
 
     for entry in main_set:
-        dist = int(entry["distance_meters"])
         repeats = int(entry.get("repeats", 1))
         rest_secs = int(entry.get("rest_seconds", 0))
+
+        # Standalone rest step: no distance given (or distance 0)
+        if not entry.get("distance_meters"):
+            if rest_secs <= 0:
+                raise ValueError(
+                    "main_set entry needs distance_meters, rest_seconds, or both"
+                )
+            steps.append(
+                _swim_rest_step(step_order, rest_secs, entry.get("description", ""))
+            )
+            step_order += 1
+            continue
+
+        dist = int(entry["distance_meters"])
         pace_slow = entry.get("pace_slow")
         pace_fast = entry.get("pace_fast")
         step_desc = entry.get("description") or f"{dist}m"
@@ -337,25 +368,20 @@ def build_swim_workout_json(
         if repeats > 1:
             nested: List[dict] = [interval_step]
             if rest_secs > 0:
-                nested.append({
-                    "type": "ExecutableStepDTO",
-                    "stepOrder": 2,
-                    "stepType": {"stepTypeId": 5, "stepTypeKey": "rest"},
-                    "description": f"Rest {rest_secs}s",
-                    "endCondition": {"conditionTypeId": 8, "conditionTypeKey": "fixed.rest"},
-                    "endConditionValue": float(rest_secs),
-                    "targetType": None,
-                })
+                nested.append(_swim_rest_step(2, rest_secs))
             steps.append({
                 "type": "RepeatGroupDTO",
                 "stepOrder": step_order,
                 "numberOfIterations": repeats,
                 "workoutSteps": nested,
             })
+            step_order += 1
         else:
             steps.append(interval_step)
-
-        step_order += 1
+            step_order += 1
+            if rest_secs > 0:
+                steps.append(_swim_rest_step(step_order, rest_secs))
+                step_order += 1
 
     steps.append({
         "type": "ExecutableStepDTO",
@@ -368,7 +394,10 @@ def build_swim_workout_json(
     })
 
     set_summary = ", ".join(
-        f"{e.get('repeats', 1)}x{e['distance_meters']}m" for e in main_set
+        f"{e.get('repeats', 1)}x{e['distance_meters']}m"
+        if e.get("distance_meters")
+        else f"{e.get('rest_seconds', 0)}s rest"
+        for e in main_set
     )
     auto_desc = description or (
         f"{warmup_meters}m warmup + {set_summary} + {cooldown_meters}m cooldown"
@@ -528,24 +557,28 @@ def register_tools(app):
 
         Structure: fixed warmup → main_set entries (in order) → fixed cooldown.
         All distances are in METRES. Do NOT pass pool lengths, step counts, or
-        JSON strings — use the typed parameters below.
+        JSON strings - use the typed parameters below.
 
         Args:
             name: Workout name.
             main_set: List of dicts, each describing one block of the main set.
-                Required keys per entry:
-                  distance_meters (int) — metres per repetition
-                  repeats         (int) — number of reps; >1 creates a repeat group
-                  rest_seconds    (int) — fixed rest between reps (0 = no rest step)
+                Swim block entry keys:
+                  distance_meters (int) - metres per repetition
+                  repeats         (int) - number of reps; >1 creates a repeat group
+                  rest_seconds    (int) - fixed rest after each rep (0 = no rest step);
+                                          with repeats == 1 the rest follows the
+                                          interval as its own step
+                Standalone rest entry: omit distance_meters and set rest_seconds
+                only, e.g. {"rest_seconds": 60} adds a rest step between blocks.
                 Optional keys per entry:
-                  description (str) — step note shown in Garmin Connect, e.g.
+                  description (str) - step note shown in Garmin Connect, e.g.
                                       drill focus cues or technique reminders
-                  stroke_type (str) — one of: freestyle, backstroke, breaststroke,
+                  stroke_type (str) - one of: freestyle, backstroke, breaststroke,
                                       butterfly, choice, im, im_by_round, rimo, mixed
-                  drill_type  (str) — one of: kick, pull, drill
-                  hr_zone     (int) — heart-rate zone 1-5 (do not combine with pace)
-                  pace_slow   (str) — slowest target pace as "M:SS" per 100 m
-                  pace_fast   (str) — fastest target pace as "M:SS" per 100 m
+                  drill_type  (str) - one of: kick, pull, drill
+                  hr_zone     (int) - heart-rate zone 1-5 (do not combine with pace)
+                  pace_slow   (str) - slowest target pace as "M:SS" per 100 m
+                  pace_fast   (str) - fastest target pace as "M:SS" per 100 m
             pool_length_meters: Length of the pool in metres (default 25). Common
                                 values: 25 (short course), 50 (long course), 22.86
                                 (25 yards). Used by the watch to measure distance per lap.
