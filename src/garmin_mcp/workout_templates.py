@@ -419,6 +419,7 @@ WORKOUT_STRUCTURE_REFERENCE = {
     "swim_training_fields": {
         "description": "Swim steps use secondary pace targets; the primary targetType is null",
         "targetType": "null — always None/null for swim steps",
+        "endCondition": "Swim work steps accept either distance (conditionTypeId 3, metres) or time (conditionTypeId 2, seconds). Rest steps use fixed.rest (conditionTypeId 8, seconds)",
         "secondaryTargetType": "Pace target object: {workoutTargetTypeId: 6, workoutTargetTypeKey: 'pace.zone'}",
         "secondaryTargetValueOne": "Slower speed bound in m/s (e.g. 0.6667 ≈ 2:30/100m)",
         "secondaryTargetValueTwo": "Faster speed bound in m/s (e.g. 0.8333 ≈ 2:00/100m)",

@@ -74,6 +74,31 @@ def _pace_to_mps(pace_str: str) -> float:
     return round(100.0 / total_seconds, 7)
 
 
+def _format_seconds(seconds: int) -> str:
+    """Render a duration for step descriptions ('45s' under a minute, else 'M:SS')."""
+    if seconds < 60:
+        return f"{seconds}s"
+    return f"{seconds // 60}:{seconds % 60:02d}"
+
+
+def _swim_end_condition(distance_meters: int, duration_seconds: int) -> tuple:
+    """Pick the end condition for a swim step: time when seconds given, else distance.
+
+    Returns (endCondition dict, endConditionValue float, default description).
+    """
+    if duration_seconds > 0:
+        return (
+            {"conditionTypeId": 2, "conditionTypeKey": "time"},
+            float(duration_seconds),
+            _format_seconds(duration_seconds),
+        )
+    return (
+        {"conditionTypeId": 3, "conditionTypeKey": "distance"},
+        float(distance_meters),
+        f"{distance_meters}m",
+    )
+
+
 def _swim_rest_step(step_order: int, rest_seconds: int, description: str = "") -> dict:
     """Build a fixed-duration swim rest step (stepTypeId 5 / fixed.rest)."""
     return {
@@ -278,11 +303,16 @@ def build_swim_workout_json(
     cooldown_meters: int,
     pool_length_meters: float = 25.0,
     description: str = "",
+    warmup_seconds: int = 0,
+    cooldown_seconds: int = 0,
 ) -> dict:
     """Build the Garmin Connect JSON for a swim (lap swimming) workout.
 
     Each entry in main_set may have:
-        distance_meters (int): distance per interval; omit for a standalone rest step
+        distance_meters (int): distance per interval; omit for a time-based or
+            standalone rest step
+        duration_seconds (int): time per interval, used instead of distance_meters
+            (the two are mutually exclusive)
         repeats (int): number of repetitions (>1 wraps in RepeatGroupDTO)
         rest_seconds (int): rest after each rep using fixed.rest (0 = no rest step);
             with repeats > 1 the rest goes inside the repeat group, with repeats == 1
@@ -294,20 +324,26 @@ def build_swim_workout_json(
             choice|im|im_by_round|rimo|mixed
         drill_type (str, optional): one of kick|pull|drill (independent of stroke_type)
 
-    An entry with rest_seconds but no distance_meters becomes a standalone rest
-    step (e.g. {"rest_seconds": 60} between two main-set blocks).
+    An entry with rest_seconds but no distance_meters/duration_seconds becomes a
+    standalone rest step (e.g. {"rest_seconds": 60} between two main-set blocks).
+
+    warmup_seconds / cooldown_seconds make the warmup / cooldown time-based; when
+    they are 0 the corresponding *_meters distance is used instead.
     """
     swim_sport = {"sportTypeId": 4, "sportTypeKey": "swimming"}
     steps: List[dict] = []
     step_order = 1
 
+    warmup_condition, warmup_value, warmup_label = _swim_end_condition(
+        warmup_meters, warmup_seconds
+    )
     steps.append({
         "type": "ExecutableStepDTO",
         "stepOrder": step_order,
         "stepType": {"stepTypeId": 1, "stepTypeKey": "warmup"},
-        "description": f"Warmup {warmup_meters}m",
-        "endCondition": {"conditionTypeId": 3, "conditionTypeKey": "distance"},
-        "endConditionValue": float(warmup_meters),
+        "description": f"Warmup {warmup_label}",
+        "endCondition": warmup_condition,
+        "endConditionValue": warmup_value,
         "targetType": None,
     })
     step_order += 1
@@ -315,12 +351,20 @@ def build_swim_workout_json(
     for entry in main_set:
         repeats = int(entry.get("repeats", 1))
         rest_secs = int(entry.get("rest_seconds", 0))
+        dist = int(entry.get("distance_meters") or 0)
+        dur_secs = int(entry.get("duration_seconds") or 0)
 
-        # Standalone rest step: no distance given (or distance 0)
-        if not entry.get("distance_meters"):
+        if dist and dur_secs:
+            raise ValueError(
+                "main_set entry cannot set both distance_meters and duration_seconds"
+            )
+
+        # Standalone rest step: neither distance nor duration given
+        if not dist and not dur_secs:
             if rest_secs <= 0:
                 raise ValueError(
-                    "main_set entry needs distance_meters, rest_seconds, or both"
+                    "main_set entry needs distance_meters, duration_seconds, "
+                    "rest_seconds, or a combination"
                 )
             steps.append(
                 _swim_rest_step(step_order, rest_secs, entry.get("description", ""))
@@ -328,18 +372,18 @@ def build_swim_workout_json(
             step_order += 1
             continue
 
-        dist = int(entry["distance_meters"])
         pace_slow = entry.get("pace_slow")
         pace_fast = entry.get("pace_fast")
-        step_desc = entry.get("description") or f"{dist}m"
+        end_condition, end_value, default_desc = _swim_end_condition(dist, dur_secs)
+        step_desc = entry.get("description") or default_desc
 
         interval_step: dict = {
             "type": "ExecutableStepDTO",
             "stepOrder": 1 if repeats > 1 else step_order,
             "stepType": {"stepTypeId": 3, "stepTypeKey": "interval"},
             "description": step_desc,
-            "endCondition": {"conditionTypeId": 3, "conditionTypeKey": "distance"},
-            "endConditionValue": float(dist),
+            "endCondition": end_condition,
+            "endConditionValue": end_value,
             "targetType": None,
         }
         if pace_slow and pace_fast:
@@ -383,24 +427,29 @@ def build_swim_workout_json(
                 steps.append(_swim_rest_step(step_order, rest_secs))
                 step_order += 1
 
+    cooldown_condition, cooldown_value, cooldown_label = _swim_end_condition(
+        cooldown_meters, cooldown_seconds
+    )
     steps.append({
         "type": "ExecutableStepDTO",
         "stepOrder": step_order,
         "stepType": {"stepTypeId": 2, "stepTypeKey": "cooldown"},
-        "description": f"Cooldown {cooldown_meters}m",
-        "endCondition": {"conditionTypeId": 3, "conditionTypeKey": "distance"},
-        "endConditionValue": float(cooldown_meters),
+        "description": f"Cooldown {cooldown_label}",
+        "endCondition": cooldown_condition,
+        "endConditionValue": cooldown_value,
         "targetType": None,
     })
 
-    set_summary = ", ".join(
-        f"{e.get('repeats', 1)}x{e['distance_meters']}m"
-        if e.get("distance_meters")
-        else f"{e.get('rest_seconds', 0)}s rest"
-        for e in main_set
-    )
+    def _entry_summary(e: Dict[str, Any]) -> str:
+        if e.get("distance_meters"):
+            return f"{e.get('repeats', 1)}x{int(e['distance_meters'])}m"
+        if e.get("duration_seconds"):
+            return f"{e.get('repeats', 1)}x{_format_seconds(int(e['duration_seconds']))}"
+        return f"{e.get('rest_seconds', 0)}s rest"
+
+    set_summary = ", ".join(_entry_summary(e) for e in main_set)
     auto_desc = description or (
-        f"{warmup_meters}m warmup + {set_summary} + {cooldown_meters}m cooldown"
+        f"{warmup_label} warmup + {set_summary} + {cooldown_label} cooldown"
     )
 
     return {
@@ -548,28 +597,34 @@ def register_tools(app):
         warmup_meters: int = 200,
         cooldown_meters: int = 100,
         description: str = "",
+        warmup_seconds: int = 0,
+        cooldown_seconds: int = 0,
     ) -> str:
         """PREFERRED tool for creating pool (lap) swimming workouts on Garmin Connect.
 
         Use this instead of upload_workout for any swim workout. It automatically
         handles pool length, stroke types, drill types, HR zone targets, distance-
-        based steps, and Garmin's swim-specific JSON format.
+        based and time-based steps, and Garmin's swim-specific JSON format.
 
         Structure: fixed warmup → main_set entries (in order) → fixed cooldown.
-        All distances are in METRES. Do NOT pass pool lengths, step counts, or
-        JSON strings - use the typed parameters below.
+        Distances are in METRES, durations in SECONDS. Do NOT pass pool lengths,
+        step counts, or JSON strings - use the typed parameters below.
 
         Args:
             name: Workout name.
             main_set: List of dicts, each describing one block of the main set.
                 Swim block entry keys:
-                  distance_meters (int) - metres per repetition
-                  repeats         (int) - number of reps; >1 creates a repeat group
-                  rest_seconds    (int) - fixed rest after each rep (0 = no rest step);
-                                          with repeats == 1 the rest follows the
-                                          interval as its own step
-                Standalone rest entry: omit distance_meters and set rest_seconds
-                only, e.g. {"rest_seconds": 60} adds a rest step between blocks.
+                  distance_meters  (int) - metres per repetition
+                  duration_seconds (int) - seconds per repetition, used INSTEAD of
+                                           distance_meters for a time-based step;
+                                           setting both in one entry is an error
+                  repeats          (int) - number of reps; >1 creates a repeat group
+                  rest_seconds     (int) - fixed rest after each rep (0 = no rest step);
+                                           with repeats == 1 the rest follows the
+                                           interval as its own step
+                Standalone rest entry: omit distance_meters and duration_seconds and
+                set rest_seconds only, e.g. {"rest_seconds": 60} adds a rest step
+                between blocks.
                 Optional keys per entry:
                   description (str) - step note shown in Garmin Connect, e.g.
                                       drill focus cues or technique reminders
@@ -585,6 +640,10 @@ def register_tools(app):
             warmup_meters:   Warmup distance in metres (default 200).
             cooldown_meters: Cooldown distance in metres (default 100).
             description:     Optional free-text description (auto-generated if blank).
+            warmup_seconds:   Time-based warmup in seconds; when > 0 it replaces
+                              warmup_meters (default 0 = use distance).
+            cooldown_seconds: Time-based cooldown in seconds; when > 0 it replaces
+                              cooldown_meters (default 0 = use distance).
         """
         try:
             workout_json = build_swim_workout_json(
@@ -594,6 +653,8 @@ def register_tools(app):
                 cooldown_meters=cooldown_meters,
                 pool_length_meters=pool_length_meters,
                 description=description,
+                warmup_seconds=warmup_seconds,
+                cooldown_seconds=cooldown_seconds,
             )
             result = garmin_client.upload_workout(workout_json)
 

@@ -183,13 +183,155 @@ def test_build_swim_workout_json_standalone_rest():
 
 
 def test_build_swim_workout_json_empty_entry_raises():
-    with pytest.raises(ValueError, match="distance_meters, rest_seconds"):
+    with pytest.raises(ValueError, match="distance_meters, duration_seconds"):
         build_swim_workout_json(
             name="Bad Entry",
             warmup_meters=100,
             main_set=[{"repeats": 2}],
             cooldown_meters=100,
         )
+
+
+def test_build_swim_workout_json_time_based_step():
+    result = build_swim_workout_json(
+        name="Time Swim",
+        warmup_meters=200,
+        main_set=[{"duration_seconds": 90, "repeats": 4, "rest_seconds": 30}],
+        cooldown_meters=100,
+    )
+    steps = result["workoutSegments"][0]["workoutSteps"]
+    # warmup + RepeatGroupDTO + cooldown = 3 top-level steps
+    assert len(steps) == 3
+    assert steps[1]["type"] == "RepeatGroupDTO"
+
+    interval = steps[1]["workoutSteps"][0]
+    assert interval["stepType"]["stepTypeKey"] == "interval"
+    assert interval["endCondition"]["conditionTypeKey"] == "time"
+    assert interval["endCondition"]["conditionTypeId"] == 2
+    assert interval["endConditionValue"] == 90.0
+    assert interval["description"] == "1:30"
+    # rest inside the group still uses fixed.rest
+    assert steps[1]["workoutSteps"][1]["endCondition"]["conditionTypeKey"] == "fixed.rest"
+    # summary counts the block by duration
+    assert "4x1:30" in result["description"]
+
+
+def test_build_swim_workout_json_time_based_single_repeat_with_extras():
+    result = build_swim_workout_json(
+        name="Time Single",
+        warmup_meters=100,
+        main_set=[{
+            "duration_seconds": 45,
+            "repeats": 1,
+            "rest_seconds": 20,
+            "stroke_type": "backstroke",
+            "drill_type": "kick",
+            "hr_zone": 3,
+            "description": "45s easy backstroke kick",
+        }],
+        cooldown_meters=100,
+    )
+    steps = result["workoutSegments"][0]["workoutSteps"]
+    # warmup + interval + rest + cooldown = 4 steps
+    assert len(steps) == 4
+    interval = steps[1]
+    assert interval["type"] == "ExecutableStepDTO"
+    assert interval["endCondition"]["conditionTypeKey"] == "time"
+    assert interval["endConditionValue"] == 45.0
+    assert interval["description"] == "45s easy backstroke kick"
+    assert interval["strokeType"]["strokeTypeKey"] == "backstroke"
+    assert interval["drillType"]["drillTypeKey"] == "kick"
+    assert interval["targetType"]["workoutTargetTypeKey"] == "heart.rate.zone"
+    assert interval["zoneNumber"] == 3
+    assert steps[2]["endCondition"]["conditionTypeKey"] == "fixed.rest"
+    assert [s["stepOrder"] for s in steps] == [1, 2, 3, 4]
+
+
+def test_build_swim_workout_json_time_and_distance_together_raises():
+    with pytest.raises(ValueError, match="cannot set both"):
+        build_swim_workout_json(
+            name="Ambiguous",
+            warmup_meters=100,
+            main_set=[{"distance_meters": 100, "duration_seconds": 60, "repeats": 2}],
+            cooldown_meters=100,
+        )
+
+
+def test_build_swim_workout_json_mixed_distance_and_time_blocks():
+    result = build_swim_workout_json(
+        name="Mixed Swim",
+        warmup_meters=200,
+        main_set=[
+            {"distance_meters": 100, "repeats": 4, "rest_seconds": 20},
+            {"rest_seconds": 60},
+            {"duration_seconds": 300, "repeats": 1},
+        ],
+        cooldown_meters=100,
+    )
+    steps = result["workoutSegments"][0]["workoutSteps"]
+    # warmup + repeat group + standalone rest + time interval + cooldown = 5 steps
+    assert len(steps) == 5
+    assert steps[1]["workoutSteps"][0]["endCondition"]["conditionTypeKey"] == "distance"
+    assert steps[2]["stepType"]["stepTypeKey"] == "rest"
+    assert steps[3]["endCondition"]["conditionTypeKey"] == "time"
+    assert steps[3]["endConditionValue"] == 300.0
+    assert [s["stepOrder"] for s in steps] == [1, 2, 3, 4, 5]
+    assert "4x100m, 60s rest, 1x5:00" in result["description"]
+
+
+def test_build_swim_workout_json_time_based_warmup_and_cooldown():
+    result = build_swim_workout_json(
+        name="Timed Ends",
+        warmup_meters=200,
+        main_set=[{"distance_meters": 100, "repeats": 2, "rest_seconds": 20}],
+        cooldown_meters=100,
+        warmup_seconds=600,
+        cooldown_seconds=180,
+    )
+    steps = result["workoutSegments"][0]["workoutSteps"]
+    assert steps[0]["stepType"]["stepTypeKey"] == "warmup"
+    assert steps[0]["endCondition"]["conditionTypeKey"] == "time"
+    assert steps[0]["endConditionValue"] == 600.0
+    assert steps[0]["description"] == "Warmup 10:00"
+    assert steps[-1]["stepType"]["stepTypeKey"] == "cooldown"
+    assert steps[-1]["endCondition"]["conditionTypeKey"] == "time"
+    assert steps[-1]["endConditionValue"] == 180.0
+    assert steps[-1]["description"] == "Cooldown 3:00"
+    assert result["description"].startswith("10:00 warmup")
+    assert result["description"].endswith("3:00 cooldown")
+
+
+def test_build_swim_workout_json_distance_ends_unchanged_by_default():
+    result = build_swim_workout_json(
+        name="Distance Ends",
+        warmup_meters=200,
+        main_set=[{"distance_meters": 100, "repeats": 2, "rest_seconds": 20}],
+        cooldown_meters=100,
+    )
+    steps = result["workoutSegments"][0]["workoutSteps"]
+    assert steps[0]["endCondition"]["conditionTypeKey"] == "distance"
+    assert steps[0]["description"] == "Warmup 200m"
+    assert steps[-1]["endCondition"]["conditionTypeKey"] == "distance"
+    assert steps[-1]["description"] == "Cooldown 100m"
+
+
+def test_build_swim_workout_json_time_step_with_pace_target():
+    result = build_swim_workout_json(
+        name="Timed Pace",
+        warmup_meters=100,
+        main_set=[{
+            "duration_seconds": 120,
+            "repeats": 2,
+            "rest_seconds": 30,
+            "pace_slow": "2:30",
+            "pace_fast": "2:00",
+        }],
+        cooldown_meters=100,
+    )
+    interval = result["workoutSegments"][0]["workoutSteps"][1]["workoutSteps"][0]
+    assert interval["endCondition"]["conditionTypeKey"] == "time"
+    assert interval["secondaryTargetType"]["workoutTargetTypeKey"] == "pace.zone"
+    assert abs(interval["secondaryTargetValueOne"] - _pace_to_mps("2:30")) < 1e-6
 
 
 def test_build_swim_workout_json_no_pace():
