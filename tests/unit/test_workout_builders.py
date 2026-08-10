@@ -10,6 +10,7 @@ from garmin_mcp.workout_builders import (
     build_swim_workout_json,
     _pace_to_mps,
     SWIM_STROKE_TYPES,
+    SWIM_STROKE_ALIASES,
     SWIM_DRILL_TYPES,
 )
 
@@ -390,8 +391,9 @@ def test_build_swim_workout_json_stroke_and_drill_combined():
         cooldown_meters=100,
     )
     interval = result["workoutSegments"][0]["workoutSteps"][1]["workoutSteps"][0]
-    assert interval["strokeType"]["strokeTypeKey"] == "freestyle"
-    assert interval["strokeType"]["strokeTypeId"] == SWIM_STROKE_TYPES["freestyle"]["strokeTypeId"]
+    # "freestyle" is an alias; Garmin's own key is "free"
+    assert interval["strokeType"]["strokeTypeKey"] == "free"
+    assert interval["strokeType"]["strokeTypeId"] == SWIM_STROKE_TYPES["free"]["strokeTypeId"]
     assert interval["drillType"]["drillTypeKey"] == "pull"
     assert interval["drillType"]["drillTypeId"] == SWIM_DRILL_TYPES["pull"]["drillTypeId"]
 
@@ -444,6 +446,95 @@ def test_build_swim_workout_json_hr_zone():
     interval = result["workoutSegments"][0]["workoutSteps"][1]["workoutSteps"][0]
     assert interval["targetType"]["workoutTargetTypeKey"] == "heart.rate.zone"
     assert interval["zoneNumber"] == 2
+
+
+def test_swim_enums_match_garmin_catalog():
+    """Stroke and drill tables must match Garmin's own catalog.
+
+    Snapshot of GET workout-service/workout/types. Refresh it if Garmin adds
+    types; a mismatch here means we would upload IDs Garmin does not recognise.
+    """
+    catalog_path = os.path.join(SNAPSHOT_DIR, "workout_types.json")
+    with open(catalog_path, "r", encoding="utf-8") as f:
+        catalog = json.load(f)
+
+    garmin_strokes = {
+        s["strokeTypeKey"]: s["strokeTypeId"] for s in catalog["workoutStrokeTypes"]
+    }
+    ours = {k: v["strokeTypeId"] for k, v in SWIM_STROKE_TYPES.items()}
+    assert ours == garmin_strokes
+
+    # every entry carries the key it is filed under, and Garmin's displayOrder
+    for key, entry in SWIM_STROKE_TYPES.items():
+        assert entry["strokeTypeKey"] == key
+    garmin_stroke_order = {
+        s["strokeTypeKey"]: s["displayOrder"] for s in catalog["workoutStrokeTypes"]
+    }
+    assert {k: v["displayOrder"] for k, v in SWIM_STROKE_TYPES.items()} == garmin_stroke_order
+
+    garmin_drills = {
+        d["drillTypeKey"]: d["drillTypeId"] for d in catalog["workoutDrillTypes"]
+    }
+    assert {k: v["drillTypeId"] for k, v in SWIM_DRILL_TYPES.items()} == garmin_drills
+
+    # aliases must resolve to real Garmin stroke keys
+    for alias, target in SWIM_STROKE_ALIASES.items():
+        assert target in SWIM_STROKE_TYPES
+        assert alias not in SWIM_STROKE_TYPES
+
+
+def test_swim_condition_types_match_garmin_catalog():
+    """The end conditions the swim builder emits must exist in Garmin's catalog."""
+    catalog_path = os.path.join(SNAPSHOT_DIR, "workout_types.json")
+    with open(catalog_path, "r", encoding="utf-8") as f:
+        catalog = json.load(f)
+
+    conditions = {
+        c["conditionTypeKey"]: c["conditionTypeId"] for c in catalog["workoutConditionTypes"]
+    }
+    assert conditions["time"] == 2
+    assert conditions["distance"] == 3
+    assert conditions["fixed.rest"] == 8
+
+    sports = {s["sportTypeKey"]: s["sportTypeId"] for s in catalog["workoutSportTypes"]}
+    assert sports["swimming"] == 4
+
+
+def test_build_swim_workout_json_stroke_alias_resolves():
+    result = build_swim_workout_json(
+        name="Alias Strokes",
+        warmup_meters=100,
+        main_set=[
+            {"distance_meters": 50, "repeats": 1, "stroke_type": "butterfly"},
+            {"distance_meters": 50, "repeats": 1, "stroke_type": "im"},
+            {"distance_meters": 50, "repeats": 1, "stroke_type": "choice"},
+            {"distance_meters": 50, "repeats": 1, "stroke_type": "rimo"},
+            # Garmin's own keys still work unchanged
+            {"distance_meters": 50, "repeats": 1, "stroke_type": "breaststroke"},
+        ],
+        cooldown_meters=100,
+    )
+    steps = result["workoutSegments"][0]["workoutSteps"]
+    strokes = [s["strokeType"]["strokeTypeKey"] for s in steps[1:-1]]
+    assert strokes == [
+        "fly",
+        "individual_medley",
+        "any_stroke",
+        "reverse_individual_medley_by_round",
+        "breaststroke",
+    ]
+    assert [s["strokeType"]["strokeTypeId"] for s in steps[1:-1]] == [5, 7, 1, 10, 3]
+
+
+def test_build_swim_workout_json_stroke_type_case_insensitive():
+    result = build_swim_workout_json(
+        name="Case Test",
+        warmup_meters=100,
+        main_set=[{"distance_meters": 100, "repeats": 1, "stroke_type": " Freestyle "}],
+        cooldown_meters=100,
+    )
+    interval = result["workoutSegments"][0]["workoutSteps"][1]
+    assert interval["strokeType"]["strokeTypeKey"] == "free"
 
 
 def test_build_swim_workout_json_invalid_stroke_type_ignored():

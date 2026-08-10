@@ -321,7 +321,7 @@ SWIM_WITH_DRILLS_TEMPLATE = {
                         "endCondition": {"conditionTypeId": 3, "conditionTypeKey": "distance"},
                         "endConditionValue": 50.0,
                         "targetType": None,
-                        "strokeType": {"strokeTypeId": 0, "strokeTypeKey": "freestyle", "displayOrder": 1},
+                        "strokeType": {"strokeTypeId": 6, "strokeTypeKey": "free", "displayOrder": 6},
                         "drillType": {"drillTypeId": 1, "drillTypeKey": "kick", "displayOrder": 1}
                     },
                     {
@@ -403,18 +403,18 @@ WORKOUT_STRUCTURE_REFERENCE = {
         "6": {"workoutTargetTypeKey": "pace.zone", "description": "Pace zone (use zoneNumber)"}
     },
     "sportType_values": {
+        "_note": "Captured from GET workout-service/workout/types. 12 (walking) and 13 (rucking) are NOT in that catalog but are used by existing builders — verify before relying on them.",
         "1": {"sportTypeKey": "running"},
         "2": {"sportTypeKey": "cycling"},
         "3": {"sportTypeKey": "other"},
-        "4": {"sportTypeKey": "lap_swimming"},
+        "4": {"sportTypeKey": "swimming"},
         "5": {"sportTypeKey": "strength_training"},
         "6": {"sportTypeKey": "cardio_training"},
         "7": {"sportTypeKey": "yoga"},
         "8": {"sportTypeKey": "pilates"},
         "9": {"sportTypeKey": "hiit"},
-        "11": {"sportTypeKey": "mobility"},
-        "12": {"sportTypeKey": "walking"},
-        "13": {"sportTypeKey": "rucking"}
+        "10": {"sportTypeKey": "multi_sport"},
+        "11": {"sportTypeKey": "mobility"}
     },
     "swim_training_fields": {
         "description": "Swim steps use secondary pace targets; the primary targetType is null",
@@ -426,26 +426,38 @@ WORKOUT_STRUCTURE_REFERENCE = {
         "pace_formula": "speed_mps = 100 / (minutes * 60 + seconds_part)",
         "strokeType": {
             "description": "Optional swim stroke for the step. Set on ExecutableStepDTO as strokeType: {strokeTypeId, strokeTypeKey, displayOrder}",
-            "note": "strokeTypeId values are inferred from FIT SDK + UI — validate against a live API response",
+            "note": "Values captured from GET workout-service/workout/types. Use Garmin's keys exactly — 'free' not 'freestyle', 'fly' not 'butterfly'",
             "valid_stroke_keys": {
-                "freestyle":    {"strokeTypeId": 0, "displayOrder": 1},
-                "backstroke":   {"strokeTypeId": 1, "displayOrder": 2},
-                "breaststroke": {"strokeTypeId": 2, "displayOrder": 3},
-                "butterfly":    {"strokeTypeId": 3, "displayOrder": 4},
-                "choice":       {"strokeTypeId": 4, "displayOrder": 5},
-                "im":           {"strokeTypeId": 5, "displayOrder": 6},
-                "im_by_round":  {"strokeTypeId": 6, "displayOrder": 7},
-                "rimo":         {"strokeTypeId": 7, "displayOrder": 8},
-                "mixed":        {"strokeTypeId": 8, "displayOrder": 9}
+                "any_stroke":                         {"strokeTypeId": 1,  "displayOrder": 1},
+                "backstroke":                         {"strokeTypeId": 2,  "displayOrder": 2},
+                "breaststroke":                       {"strokeTypeId": 3,  "displayOrder": 3},
+                "drill":                              {"strokeTypeId": 4,  "displayOrder": 4},
+                "fly":                                {"strokeTypeId": 5,  "displayOrder": 5},
+                "free":                               {"strokeTypeId": 6,  "displayOrder": 6},
+                "individual_medley":                  {"strokeTypeId": 7,  "displayOrder": 7},
+                "mixed":                              {"strokeTypeId": 8,  "displayOrder": 8},
+                "individual_medley_by_round":         {"strokeTypeId": 9,  "displayOrder": 9},
+                "reverse_individual_medley_by_round": {"strokeTypeId": 10, "displayOrder": 10}
             }
         },
         "drillType": {
             "description": "Optional drill technique for the step, separate from strokeType. Set as drillType: {drillTypeId, drillTypeKey, displayOrder}",
-            "note": "drillTypeId values are not publicly documented — validate against a live API response",
+            "note": "Values captured from GET workout-service/workout/types",
             "valid_drill_keys": {
                 "kick":  {"drillTypeId": 1, "displayOrder": 1},
                 "pull":  {"drillTypeId": 2, "displayOrder": 2},
                 "drill": {"drillTypeId": 3, "displayOrder": 3}
+            }
+        },
+        "equipmentType": {
+            "description": "Optional swim equipment for the step. Set as equipmentType: {equipmentTypeId, equipmentTypeKey, displayOrder}",
+            "note": "Values captured from GET workout-service/workout/types; not yet emitted by create_swim_workout",
+            "valid_equipment_keys": {
+                "fins":      {"equipmentTypeId": 1, "displayOrder": 1},
+                "kickboard": {"equipmentTypeId": 2, "displayOrder": 2},
+                "paddles":   {"equipmentTypeId": 3, "displayOrder": 3},
+                "pull_buoy": {"equipmentTypeId": 4, "displayOrder": 4},
+                "snorkel":   {"equipmentTypeId": 5, "displayOrder": 5}
             }
         }
     },

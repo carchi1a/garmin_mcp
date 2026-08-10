@@ -29,22 +29,33 @@ HR_ZONE_MAP = {
     "Z5": 5,
 }
 
-# strokeTypeId values are inferred from the Garmin FIT SDK and UI observation.
-# ⚠️ Validate against a live API response - workout builder IDs may differ from FIT SDK.
+# Stroke and drill IDs below are Garmin's own values, captured from
+# GET workout-service/workout/types (see tests/fixtures/captured/workout_types.json).
+# test_swim_enums_match_garmin_catalog guards them against drift.
 SWIM_STROKE_TYPES = {
-    "freestyle":    {"strokeTypeId": 0, "strokeTypeKey": "freestyle",    "displayOrder": 1},
-    "backstroke":   {"strokeTypeId": 1, "strokeTypeKey": "backstroke",   "displayOrder": 2},
-    "breaststroke": {"strokeTypeId": 2, "strokeTypeKey": "breaststroke", "displayOrder": 3},
-    "butterfly":    {"strokeTypeId": 3, "strokeTypeKey": "butterfly",    "displayOrder": 4},
-    "choice":       {"strokeTypeId": 4, "strokeTypeKey": "choice",       "displayOrder": 5},
-    "im":           {"strokeTypeId": 5, "strokeTypeKey": "im",           "displayOrder": 6},
-    "im_by_round":  {"strokeTypeId": 6, "strokeTypeKey": "im_by_round",  "displayOrder": 7},
-    "rimo":         {"strokeTypeId": 7, "strokeTypeKey": "rimo",         "displayOrder": 8},
-    "mixed":        {"strokeTypeId": 8, "strokeTypeKey": "mixed",        "displayOrder": 9},
+    "any_stroke":                         {"strokeTypeId": 1,  "strokeTypeKey": "any_stroke",                         "displayOrder": 1},
+    "backstroke":                         {"strokeTypeId": 2,  "strokeTypeKey": "backstroke",                         "displayOrder": 2},
+    "breaststroke":                       {"strokeTypeId": 3,  "strokeTypeKey": "breaststroke",                       "displayOrder": 3},
+    "drill":                              {"strokeTypeId": 4,  "strokeTypeKey": "drill",                              "displayOrder": 4},
+    "fly":                                {"strokeTypeId": 5,  "strokeTypeKey": "fly",                                "displayOrder": 5},
+    "free":                               {"strokeTypeId": 6,  "strokeTypeKey": "free",                               "displayOrder": 6},
+    "individual_medley":                  {"strokeTypeId": 7,  "strokeTypeKey": "individual_medley",                  "displayOrder": 7},
+    "mixed":                              {"strokeTypeId": 8,  "strokeTypeKey": "mixed",                              "displayOrder": 8},
+    "individual_medley_by_round":         {"strokeTypeId": 9,  "strokeTypeKey": "individual_medley_by_round",         "displayOrder": 9},
+    "reverse_individual_medley_by_round": {"strokeTypeId": 10, "strokeTypeKey": "reverse_individual_medley_by_round", "displayOrder": 10},
 }
 
-# drillTypeId values are not documented in any public source.
-# ⚠️ Validate against a live API response before relying on these IDs.
+# Everyday swim vocabulary mapped onto Garmin's stroke keys, so callers can pass
+# "freestyle" or "butterfly" without knowing Garmin's naming.
+SWIM_STROKE_ALIASES = {
+    "freestyle":   "free",
+    "butterfly":   "fly",
+    "choice":      "any_stroke",
+    "im":          "individual_medley",
+    "im_by_round": "individual_medley_by_round",
+    "rimo":        "reverse_individual_medley_by_round",
+}
+
 SWIM_DRILL_TYPES = {
     "kick":  {"drillTypeId": 1, "drillTypeKey": "kick",  "displayOrder": 1},
     "pull":  {"drillTypeId": 2, "drillTypeKey": "pull",  "displayOrder": 2},
@@ -72,6 +83,13 @@ def _pace_to_mps(pace_str: str) -> float:
     parts = pace_str.strip().split(":")
     total_seconds = int(parts[0]) * 60 + int(parts[1])
     return round(100.0 / total_seconds, 7)
+
+
+def _swim_stroke(stroke_key: str) -> dict:
+    """Resolve a stroke name (Garmin key or friendly alias) to its strokeType dict."""
+    key = stroke_key.strip().lower()
+    key = SWIM_STROKE_ALIASES.get(key, key)
+    return SWIM_STROKE_TYPES.get(key)
 
 
 def _format_seconds(seconds: int) -> str:
@@ -320,8 +338,10 @@ def build_swim_workout_json(
         pace_slow (str, optional): slowest target pace as 'M:SS' per 100m
         pace_fast (str, optional): fastest target pace as 'M:SS' per 100m
         hr_zone (int, optional): heart-rate zone target 1-5 (mutually exclusive with pace)
-        stroke_type (str, optional): one of freestyle|backstroke|breaststroke|butterfly|
-            choice|im|im_by_round|rimo|mixed
+        stroke_type (str, optional): a Garmin stroke key (any_stroke|backstroke|
+            breaststroke|drill|fly|free|individual_medley|mixed|
+            individual_medley_by_round|reverse_individual_medley_by_round) or a
+            friendly alias (freestyle|butterfly|choice|im|im_by_round|rimo)
         drill_type (str, optional): one of kick|pull|drill (independent of stroke_type)
 
     An entry with rest_seconds but no distance_meters/duration_seconds becomes a
@@ -402,10 +422,10 @@ def build_swim_workout_json(
             }
             interval_step["zoneNumber"] = int(hr_zone)
 
-        stroke_key = entry.get("stroke_type", "").lower()
-        drill_key = entry.get("drill_type", "").lower()
-        if stroke_key in SWIM_STROKE_TYPES:
-            interval_step["strokeType"] = SWIM_STROKE_TYPES[stroke_key]
+        stroke = _swim_stroke(entry.get("stroke_type", ""))
+        drill_key = entry.get("drill_type", "").strip().lower()
+        if stroke:
+            interval_step["strokeType"] = stroke
         if drill_key in SWIM_DRILL_TYPES:
             interval_step["drillType"] = SWIM_DRILL_TYPES[drill_key]
 
@@ -628,8 +648,14 @@ def register_tools(app):
                 Optional keys per entry:
                   description (str) - step note shown in Garmin Connect, e.g.
                                       drill focus cues or technique reminders
-                  stroke_type (str) - one of: freestyle, backstroke, breaststroke,
-                                      butterfly, choice, im, im_by_round, rimo, mixed
+                  stroke_type (str) - Garmin stroke key: any_stroke, backstroke,
+                                      breaststroke, drill, fly, free,
+                                      individual_medley, mixed,
+                                      individual_medley_by_round,
+                                      reverse_individual_medley_by_round. These
+                                      aliases also work: freestyle (free),
+                                      butterfly (fly), choice (any_stroke),
+                                      im, im_by_round, rimo
                   drill_type  (str) - one of: kick, pull, drill
                   hr_zone     (int) - heart-rate zone 1-5 (do not combine with pace)
                   pace_slow   (str) - slowest target pace as "M:SS" per 100 m
